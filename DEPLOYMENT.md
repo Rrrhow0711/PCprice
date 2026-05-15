@@ -1,31 +1,50 @@
 # Deployment Checklist
 
-## 1. Supabase
+Recommended setup:
 
-Create a Supabase project, then run:
-
-```sql
--- supabase/migrations/001_initial_schema.sql
+```text
+GitHub repo -> Vercel frontend
+GitHub Actions -> daily Python scraper
+Neon Postgres -> product and price data
 ```
 
-Copy these values:
+## 1. Create Neon Database
 
-- Project URL
-- anon public key
-- service role key
+Go to Neon and create a Postgres project:
+
+```text
+https://neon.tech
+```
+
+Open SQL Editor and run:
+
+```sql
+-- paste database/migrations/001_initial_schema.sql
+```
+
+Copy the pooled or normal connection string. It should look like:
+
+```text
+postgresql://USER:PASSWORD@HOST/DB?sslmode=require
+```
+
+This value is `DATABASE_URL`.
 
 ## 2. GitHub Secrets
 
-Repository: `Rrrhow0711/PCprice`
-
-Add Actions secrets:
+Repository:
 
 ```text
-SUPABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
+https://github.com/Rrrhow0711/PCprice
 ```
 
-These are used only by `.github/workflows/daily-scrape.yml`.
+Add Actions secret:
+
+```text
+DATABASE_URL
+```
+
+This is used by `.github/workflows/daily-scrape.yml`.
 
 ## 3. Vercel
 
@@ -41,18 +60,15 @@ Framework preset:
 Next.js
 ```
 
-Environment variables:
+Environment variable:
 
 ```text
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY
+DATABASE_URL
 ```
-
-Do not add `SUPABASE_SERVICE_ROLE_KEY` to frontend runtime variables.
 
 ## 4. First Data Run
 
-After Supabase secrets are set, run the GitHub workflow manually:
+After `DATABASE_URL` is set in GitHub, run the workflow manually:
 
 ```text
 Actions -> Daily SSD scrape -> Run workflow

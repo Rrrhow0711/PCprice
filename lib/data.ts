@@ -1,20 +1,22 @@
-import { createBrowserSafeSupabaseClient, hasBrowserSafeSupabaseEnv } from "@/lib/supabase";
+import { getSql, hasDatabaseEnv } from "@/lib/db";
 import type { PriceSnapshot, Product, ProductDetail, ProductSummary, Retailer, RetailerProduct } from "@/lib/types";
 
 const RETAILERS: Retailer[] = ["coolpc", "sinya"];
 
-type RetailerProductRow = RetailerProduct & {
-  products: Product | Product[] | null;
+type SummaryRow = Product & {
+  retailer_product_id: string;
+  retailer: string;
+  retailer_product_name: string;
+  url: string | null;
+  is_active: boolean;
+  retailer_product_created_at: string;
+  retailer_product_updated_at: string;
+  snapshot_id: string;
+  price: number | null;
+  stock_status: string;
+  scraped_at: string;
+  raw_payload: Record<string, unknown>;
 };
-
-type SnapshotRow = PriceSnapshot & {
-  retailer_products: RetailerProductRow | RetailerProductRow[] | null;
-};
-
-function firstOrNull<T>(value: T | T[] | null | undefined): T | null {
-  if (Array.isArray(value)) return value[0] ?? null;
-  return value ?? null;
-}
 
 function daysAgo(days: number) {
   const date = new Date();
@@ -23,61 +25,53 @@ function daysAgo(days: number) {
 }
 
 export async function getProductSummaries(): Promise<ProductSummary[]> {
-  if (!hasBrowserSafeSupabaseEnv()) return [];
+  if (!hasDatabaseEnv()) return [];
 
-  const supabase = createBrowserSafeSupabaseClient();
-
-  const { data, error } = await supabase
-    .from("price_snapshots")
-    .select(
-      `
-      id,
-      retailer_product_id,
-      price,
-      stock_status,
-      scraped_at,
-      raw_payload,
-      retailer_products (
-        id,
-        product_id,
-        retailer,
-        retailer_product_name,
-        url,
-        is_active,
-        created_at,
-        updated_at,
-        products (
-          id,
-          category,
-          brand,
-          model,
-          capacity,
-          interface,
-          form_factor,
-          standard_name,
-          created_at,
-          updated_at
-        )
-      )
-    `
-    )
-    .gte("scraped_at", daysAgo(30))
-    .order("scraped_at", { ascending: false });
-
-  if (error) throw error;
+  const sql = getSql();
+  const rows = await sql<SummaryRow[]>`
+    select
+      p.id,
+      p.category,
+      p.brand,
+      p.model,
+      p.capacity,
+      p.interface,
+      p.form_factor,
+      p.standard_name,
+      p.created_at,
+      p.updated_at,
+      rp.id as retailer_product_id,
+      rp.retailer,
+      rp.retailer_product_name,
+      rp.url,
+      rp.is_active,
+      rp.created_at as retailer_product_created_at,
+      rp.updated_at as retailer_product_updated_at,
+      ps.id as snapshot_id,
+      ps.price,
+      ps.stock_status,
+      ps.scraped_at,
+      ps.raw_payload
+    from price_snapshots ps
+    join retailer_products rp on rp.id = ps.retailer_product_id
+    join products p on p.id = rp.product_id
+    where p.category = 'ssd'
+      and ps.scraped_at >= ${daysAgo(30)}
+    order by p.standard_name asc, ps.scraped_at desc
+  `;
 
   const byProduct = new Map<
     string,
     {
       product: Product;
-      snapshots: SnapshotRow[];
+      snapshots: Array<PriceSnapshot & { retailerProduct: RetailerProduct }>;
     }
   >();
 
-  for (const snapshot of (data ?? []) as unknown as SnapshotRow[]) {
-    const retailerProduct = firstOrNull(snapshot.retailer_products);
-    const product = firstOrNull(retailerProduct?.products);
-    if (!retailerProduct || !product || product.category !== "ssd") continue;
+  for (const row of rows) {
+    const product = rowToProduct(row);
+    const retailerProduct = rowToRetailerProduct(row);
+    const snapshot = rowToSnapshot(row, retailerProduct);
 
     const existing = byProduct.get(product.id);
     if (existing) {
@@ -92,13 +86,9 @@ export async function getProductSummaries(): Promise<ProductSummary[]> {
       const latestByRetailer: ProductSummary["latestByRetailer"] = {};
 
       for (const retailer of RETAILERS) {
-        const latest = snapshots.find((snapshot) => firstOrNull(snapshot.retailer_products)?.retailer === retailer);
-        const latestRetailerProduct = firstOrNull(latest?.retailer_products);
-        if (latest && latestRetailerProduct) {
-          latestByRetailer[retailer] = {
-            ...latest,
-            retailerProduct: latestRetailerProduct
-          };
+        const latest = snapshots.find((snapshot) => snapshot.retailerProduct.retailer === retailer);
+        if (latest) {
+          latestByRetailer[retailer] = latest;
         }
       }
 
@@ -139,41 +129,45 @@ export async function getProductSummaries(): Promise<ProductSummary[]> {
 }
 
 export async function getProductDetail(productId: string): Promise<ProductDetail | null> {
-  if (!hasBrowserSafeSupabaseEnv()) return null;
+  if (!hasDatabaseEnv()) return null;
 
-  const supabase = createBrowserSafeSupabaseClient();
+  const sql = getSql();
+  const products = await sql<Product[]>`
+    select *
+    from products
+    where id = ${productId}
+    limit 1
+  `;
 
-  const { data: product, error: productError } = await supabase.from("products").select("*").eq("id", productId).single();
-  if (productError) return null;
+  const product = products[0];
+  if (!product) return null;
 
-  const { data: retailerProducts, error: retailerError } = await supabase
-    .from("retailer_products")
-    .select("*")
-    .eq("product_id", productId)
-    .order("retailer");
+  const retailerProducts = await sql<RetailerProduct[]>`
+    select *
+    from retailer_products
+    where product_id = ${productId}
+    order by retailer asc
+  `;
 
-  if (retailerError) throw retailerError;
-
-  const retailerProductIds = (retailerProducts ?? []).map((item) => item.id);
+  const retailerProductIds = retailerProducts.map((item) => item.id);
   if (retailerProductIds.length === 0) {
     return { product, retailerProducts: [], snapshots: [] };
   }
 
-  const { data: snapshots, error: snapshotError } = await supabase
-    .from("price_snapshots")
-    .select("*")
-    .in("retailer_product_id", retailerProductIds)
-    .order("scraped_at", { ascending: false })
-    .limit(500);
+  const snapshots = await sql<PriceSnapshot[]>`
+    select *
+    from price_snapshots
+    where retailer_product_id in ${sql(retailerProductIds)}
+    order by scraped_at desc
+    limit 500
+  `;
 
-  if (snapshotError) throw snapshotError;
-
-  const retailerProductById = new Map((retailerProducts ?? []).map((item) => [item.id, item]));
+  const retailerProductById = new Map(retailerProducts.map((item) => [item.id, item]));
 
   return {
     product,
-    retailerProducts: retailerProducts ?? [],
-    snapshots: ((snapshots ?? []) as PriceSnapshot[])
+    retailerProducts,
+    snapshots: snapshots
       .map((snapshot) => {
         const retailerProduct = retailerProductById.get(snapshot.retailer_product_id);
         if (!retailerProduct) return null;
@@ -184,15 +178,57 @@ export async function getProductDetail(productId: string): Promise<ProductDetail
 }
 
 export async function getScrapeLogs() {
-  if (!hasBrowserSafeSupabaseEnv()) return [];
+  if (!hasDatabaseEnv()) return [];
 
-  const supabase = createBrowserSafeSupabaseClient();
-  const { data, error } = await supabase
-    .from("scrape_logs")
-    .select("*")
-    .order("started_at", { ascending: false })
-    .limit(100);
+  const sql = getSql();
+  return sql`
+    select *
+    from scrape_logs
+    order by started_at desc
+    limit 100
+  `;
+}
 
-  if (error) throw error;
-  return data ?? [];
+function rowToProduct(row: SummaryRow): Product {
+  return {
+    id: row.id,
+    category: row.category,
+    brand: row.brand,
+    model: row.model,
+    capacity: row.capacity,
+    interface: row.interface,
+    form_factor: row.form_factor,
+    standard_name: row.standard_name,
+    created_at: toIsoString(row.created_at),
+    updated_at: toIsoString(row.updated_at)
+  };
+}
+
+function rowToRetailerProduct(row: SummaryRow): RetailerProduct {
+  return {
+    id: row.retailer_product_id,
+    product_id: row.id,
+    retailer: row.retailer,
+    retailer_product_name: row.retailer_product_name,
+    url: row.url,
+    is_active: row.is_active,
+    created_at: toIsoString(row.retailer_product_created_at),
+    updated_at: toIsoString(row.retailer_product_updated_at)
+  };
+}
+
+function rowToSnapshot(row: SummaryRow, retailerProduct: RetailerProduct): PriceSnapshot & { retailerProduct: RetailerProduct } {
+  return {
+    id: row.snapshot_id,
+    retailer_product_id: row.retailer_product_id,
+    price: row.price,
+    stock_status: row.stock_status,
+    scraped_at: toIsoString(row.scraped_at),
+    raw_payload: row.raw_payload,
+    retailerProduct
+  };
+}
+
+function toIsoString(value: string | Date) {
+  return value instanceof Date ? value.toISOString() : value;
 }

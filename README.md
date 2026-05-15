@@ -1,14 +1,14 @@
 # Taiwan SSD Price Tracker
 
-台灣電腦零組件價格追蹤網站 MVP。第一版追蹤 SSD，資料來源先放原價屋與欣亞，保留每日價格快照，前端提供最新價格、通路價差、7 日變化、30 日最低價與單一商品歷史折線圖。
+台灣電腦零組件價格追蹤網站 MVP。第一版追蹤 SSD，資料來源先做原價屋與欣亞，保留每日價格快照，前端顯示最新價格、通路價差、7 日變化、30 日最低價與單一商品歷史折線圖。
 
-這不是一次性 demo。專案把前端、爬蟲、資料標準化與資料庫寫入拆開，後續可以逐步擴充 PChome、momo、蝦皮商城、酷澎。
+專案已改成純 Postgres 架構，建議線上資料庫使用 Neon。只要提供 `DATABASE_URL`，也可以接 Supabase Postgres、Railway Postgres、Render Postgres 或自架 Postgres。
 
 ## Stack
 
 - Frontend: Next.js App Router + React + TypeScript
 - UI: Tailwind CSS
-- Database: Supabase Postgres
+- Database: Postgres, recommended Neon
 - Scraper: Python, requests, BeautifulSoup, optional Playwright
 - Scheduler: GitHub Actions cron
 - Chart: Recharts
@@ -22,6 +22,8 @@ app/
   admin/scrape-logs/page.tsx
 components/
 lib/
+  db.ts
+  data.ts
 scraper/
   main.py
   sites/
@@ -29,21 +31,17 @@ scraper/
     sinya.py
   utils/
     normalize.py
-    supabase_client.py
-supabase/
+    db_client.py
+database/
   migrations/001_initial_schema.sql
-.github/workflows/daily-scrape.yml
+.github/workflows/
 ```
 
 ## Setup
 
-1. Install Node dependencies
-
 ```bash
 npm install
 ```
-
-2. Install Python dependencies
 
 ```bash
 python -m venv .venv
@@ -52,7 +50,7 @@ pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
-3. Create env file
+Create `.env.local`:
 
 ```bash
 copy .env.example .env.local
@@ -61,26 +59,15 @@ copy .env.example .env.local
 Fill:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_URL=
-SUPABASE_SERVICE_ROLE_KEY=
+DATABASE_URL=
 ```
 
-Do not expose `SUPABASE_SERVICE_ROLE_KEY` to the browser. It is only for the Python scraper and GitHub Actions.
+## Database Schema
 
-## Supabase Schema
-
-Open Supabase SQL editor and run:
+Run this SQL in Neon SQL Editor or any Postgres SQL console:
 
 ```sql
--- paste supabase/migrations/001_initial_schema.sql
-```
-
-Or use Supabase CLI if your project is linked:
-
-```bash
-supabase db push
+-- paste database/migrations/001_initial_schema.sql
 ```
 
 Tables:
@@ -89,8 +76,6 @@ Tables:
 - `retailer_products`: retailer-specific listings
 - `price_snapshots`: append-only daily price snapshots
 - `scrape_logs`: scraper run status
-
-Indexes are included for `products.standard_name`, `retailer_products.retailer`, `price_snapshots.scraped_at`, and `price_snapshots.retailer_product_id`.
 
 ## Run Frontend
 
@@ -152,10 +137,11 @@ Schedule:
 - Taiwan time `09:00`
 - Manual `workflow_dispatch` supported
 
-Add GitHub Secrets:
+Add GitHub Secret:
 
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
+```text
+DATABASE_URL
+```
 
 ## Scraper Notes
 
@@ -167,7 +153,7 @@ Add GitHub Secrets:
 - 不要覆蓋 `price_snapshots`，歷史價格永遠 append-only。
 - requests 預設 timeout 20 秒，retry 3 次，商品寫入間隔 0.2 秒，通路間隔 2 秒。
 
-目前欣亞先用靜態 HTML 探測常見商品 selector，並預留 `fetch_ssd_products_with_playwright()`。正式上線前建議用 DevTools Network 找欣亞 SSD 分類 API，找不到再啟用 Playwright fallback。
+目前原價屋解析 `evaluate.php` 裡「固態硬碟 M.2｜SSD」分類的 option 商品。欣亞先用靜態 HTML 探測常見商品 selector，並預留 `fetch_ssd_products_with_playwright()`。正式上線前建議用 DevTools Network 找欣亞 SSD 分類 API，找不到再啟用 Playwright fallback。
 
 ## Extending Retailers
 
@@ -178,12 +164,3 @@ Add GitHub Secrets:
 3. 在 `scraper/main.py` 的 `SITE_MODULES` 加入 retailer
 4. 必要時更新 `normalize.py` 的品牌、型號、容量規則
 5. 前端若要顯示新通路，更新 `lib/types.ts`, `lib/data.ts`, `components/HomeDashboard.tsx`, `components/ProductHistoryChart.tsx`
-
-## Roadmap
-
-- 實測原價屋與欣亞 selector/API
-- 加入 product matching confidence，降低錯誤合併機率
-- 加入容量、介面、保固年限更完整的 parser
-- 加入價格異常檢查
-- 加入通知功能，例如 30 日低點或指定商品降價
-- 擴充 PChome、momo、蝦皮商城、酷澎 adapter

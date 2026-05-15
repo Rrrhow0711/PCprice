@@ -29,7 +29,7 @@ def fetch_ssd_products() -> list[dict[str, Any]]:
     candidates = _extract_ssd_options(soup)
     if not candidates:
         # TODO: 原價屋報價頁的 HTML 結構可能隨時間調整。若 evaluate.php 改版，
-        # 優先改這個 adapter，不要動 main.py 或 Supabase 寫入層。
+        # 優先改這個 adapter，不要動 main.py 或資料庫寫入層。
         text = soup.get_text("\n", strip=True)
         candidates = [{"text": line, "group": None, "value": None} for line in _extract_ssd_lines(text)]
 

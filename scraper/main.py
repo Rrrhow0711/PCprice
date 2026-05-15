@@ -6,10 +6,10 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from scraper.utils.supabase_client import (
+from scraper.utils.db_client import (
     create_scrape_log,
     finish_scrape_log,
-    get_supabase_client,
+    get_connection,
     save_scraped_item,
 )
 
@@ -21,32 +21,32 @@ SITE_MODULES = {
 
 
 def run_site(retailer: str, fetcher: Callable[[], list[dict[str, Any]]]) -> None:
-    client = get_supabase_client()
-    log_id = create_scrape_log(client, retailer=retailer, category="ssd")
-    items_found = 0
-    items_saved = 0
-    errors: list[str] = []
+    with get_connection() as conn:
+        log_id = create_scrape_log(conn, retailer=retailer, category="ssd")
+        items_found = 0
+        items_saved = 0
+        errors: list[str] = []
 
-    try:
-        items = fetcher()
-        items_found = len(items)
-        for item in items:
-            try:
-                if item.get("price") is None:
-                    errors.append(f"Skipped item without price: {item.get('retailer_product_name', '')[:80]}")
-                    continue
-                save_scraped_item(client, item)
-                items_saved += 1
-                time.sleep(0.2)
-            except Exception as exc:
-                errors.append(f"{item.get('retailer_product_name', 'unknown')[:80]}: {exc}")
+        try:
+            items = fetcher()
+            items_found = len(items)
+            for item in items:
+                try:
+                    if item.get("price") is None:
+                        errors.append(f"Skipped item without price: {item.get('retailer_product_name', '')[:80]}")
+                        continue
+                    save_scraped_item(conn, item)
+                    items_saved += 1
+                    time.sleep(0.2)
+                except Exception as exc:
+                    errors.append(f"{item.get('retailer_product_name', 'unknown')[:80]}: {exc}")
 
-        status = "success" if not errors else "partial"
-        message = "OK" if not errors else " ; ".join(errors[:20])
-        finish_scrape_log(client, log_id, status, message, items_found, items_saved)
-    except Exception as exc:
-        finish_scrape_log(client, log_id, "failed", str(exc), items_found, items_saved)
-        raise
+            status = "success" if not errors else "partial"
+            message = "OK" if not errors else " ; ".join(errors[:20])
+            finish_scrape_log(conn, log_id, status, message, items_found, items_saved)
+        except Exception as exc:
+            finish_scrape_log(conn, log_id, "failed", str(exc), items_found, items_saved)
+            raise
 
 
 def load_fetcher(retailer: str) -> Callable[[], list[dict[str, Any]]]:

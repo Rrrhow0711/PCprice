@@ -47,7 +47,6 @@ npm install
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
-python -m playwright install chromium
 ```
 
 Create `.env.local`:
@@ -153,7 +152,7 @@ DATABASE_URL
 - 不要覆蓋 `price_snapshots`，歷史價格永遠 append-only。
 - requests 預設 timeout 20 秒，retry 3 次，商品寫入間隔 0.2 秒，通路間隔 2 秒。
 
-目前原價屋解析 `evaluate.php` 裡「固態硬碟 M.2｜SSD」分類的 option 商品。欣亞先用靜態 HTML 探測常見商品 selector，並預留 `fetch_ssd_products_with_playwright()`。正式上線前建議用 DevTools Network 找欣亞 SSD 分類 API，找不到再啟用 Playwright fallback。
+目前原價屋解析 `evaluate.php` 裡「固態硬碟 M.2｜SSD」分類的 option 商品。欣亞先用靜態 HTML 探測常見商品 selector，並預留 `fetch_ssd_products_with_playwright()`。正式上線前建議用 DevTools Network 找欣亞 SSD 分類 API，找不到再啟用 Playwright fallback；需要啟用時再安裝 Chromium browser dependencies。
 
 ## Extending Retailers
 

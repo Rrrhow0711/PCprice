@@ -51,7 +51,7 @@ def fetch_ssd_products() -> list[dict[str, Any]]:
                     "retailer_product_name": _strip_price(line),
                     "price": price,
                     "stock_status": _extract_stock_status(line),
-                    "url": COOLPC_PRICE_URL,
+                    "url": _build_option_url(candidate),
                     "raw_payload": candidate,
                 }
             )
@@ -68,6 +68,13 @@ def fetch_ssd_products() -> list[dict[str, Any]]:
             )
 
     return products
+
+
+def _build_option_url(candidate: dict[str, Any]) -> str:
+    value = candidate.get("value")
+    if value:
+        return f"{COOLPC_PRICE_URL}?category=ssd&item={value}"
+    return COOLPC_PRICE_URL
 
 
 def _extract_ssd_options_from_html(html_text: str) -> list[dict[str, Any]]:

@@ -56,6 +56,8 @@ def normalize_ssd_name(name: str) -> NormalizedProduct:
     interface = _extract_interface(lower)
     form_factor = _extract_form_factor(lower)
     model = _extract_model(cleaned)
+    if not model:
+        model = _infer_model(cleaned, brand, capacity)
 
     parts = [part for part in [brand, model, capacity] if part]
     standard_name = " ".join(parts) if parts else cleaned[:120]
@@ -129,3 +131,30 @@ def _extract_model(name: str) -> str | None:
         if match:
             return re.sub(r"\s+", " ", match.group(0).replace(" -", "-")).strip()
     return None
+
+
+def _infer_model(name: str, brand: str | None, capacity: str | None) -> str | None:
+    text = _cleanup_name(name)
+    text = re.sub(r"【[^】]+】", " ", text)
+    text = re.sub(r"\[[^\]]+\]", " ", text)
+    text = re.sub(r"\([^)]*\)", " ", text)
+
+    first_segment = re.split(r"/|,|，", text, maxsplit=1)[0]
+    if capacity:
+        first_segment = re.sub(re.escape(capacity).replace("TB", r"\s?(?:TB|T)").replace("GB", r"\s?(?:GB|G)"), " ", first_segment, flags=re.IGNORECASE)
+    first_segment = re.sub(r"\b\d+(?:\.\d+)?\s?(?:TB|T|GB|G)\b", " ", first_segment, flags=re.IGNORECASE)
+
+    for alias in sorted(BRAND_ALIASES, key=len, reverse=True):
+        first_segment = re.sub(rf"\b{re.escape(alias)}\b", " ", first_segment, flags=re.IGNORECASE)
+
+    if brand == "Western Digital":
+        first_segment = re.sub(r"\bWD(?:_BLACK| BLACK)?\b|黑標|Western Digital", " ", first_segment, flags=re.IGNORECASE)
+
+    first_segment = re.sub(r"\b(?:SSD|固態硬碟|M\.2|PCIe|Gen[345]|SATA3?|NVMe|含散熱片|散熱片)\b", " ", first_segment, flags=re.IGNORECASE)
+    first_segment = re.sub(r"\s+", " ", first_segment).strip(" -")
+    if not first_segment:
+        return None
+
+    tokens = first_segment.split()
+    inferred = " ".join(tokens[:4]).strip()
+    return inferred[:80] or None

@@ -10,6 +10,7 @@ from scraper.utils.db_client import (
     create_scrape_log,
     finish_scrape_log,
     get_connection,
+    reset_retailer_data,
     save_scraped_item,
 )
 
@@ -20,10 +21,13 @@ SITE_MODULES = {
 }
 
 
-def run_site(retailer: str, fetcher: Callable[[], list[dict[str, Any]]]) -> None:
+def run_site(retailer: str, fetcher: Callable[[], list[dict[str, Any]]], reset_retailer: bool = False) -> None:
     print(f"[{retailer}] opening database connection...", flush=True)
     with get_connection() as conn:
         print(f"[{retailer}] database connected", flush=True)
+        if reset_retailer:
+            print(f"[{retailer}] resetting existing retailer data...", flush=True)
+            reset_retailer_data(conn, retailer)
         log_id = create_scrape_log(conn, retailer=retailer, category="ssd")
         items_found = 0
         items_saved = 0
@@ -65,12 +69,13 @@ def load_fetcher(retailer: str) -> Callable[[], list[dict[str, Any]]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Scrape Taiwan SSD prices.")
     parser.add_argument("--retailer", choices=[*SITE_MODULES.keys(), "all"], default="all")
+    parser.add_argument("--reset-retailer-data", action="store_true")
     args = parser.parse_args()
 
     retailers = SITE_MODULES.keys() if args.retailer == "all" else [args.retailer]
     for retailer in retailers:
         fetcher = load_fetcher(retailer)
-        run_site(retailer, fetcher)
+        run_site(retailer, fetcher, reset_retailer=args.reset_retailer_data)
         time.sleep(2)
 
 

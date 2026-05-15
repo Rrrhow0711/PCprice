@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "0 1 * * *"
   workflow_dispatch:
+    inputs:
+      reset_retailer_data:
+        description: "Delete existing data for each retailer before scraping"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   scrape:
@@ -32,4 +38,9 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PYTHONUNBUFFERED: "1"
-        run: timeout 8m python -u -m scraper.main --retailer ${{ matrix.retailer }}
+        run: |
+          RESET_FLAG=""
+          if [ "${{ github.event.inputs.reset_retailer_data }}" = "true" ]; then
+            RESET_FLAG="--reset-retailer-data"
+          fi
+          timeout 8m python -u -m scraper.main --retailer ${{ matrix.retailer }} $RESET_FLAG

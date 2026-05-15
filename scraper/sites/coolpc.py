@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 from typing import Any
 
@@ -24,10 +25,14 @@ def _get(url: str) -> requests.Response:
 
 def fetch_ssd_products() -> list[dict[str, Any]]:
     response = _get(COOLPC_PRICE_URL)
-    soup = BeautifulSoup(response.text, "html.parser")
+    candidates = _extract_ssd_options_from_html(response.text)
 
-    candidates = _extract_ssd_options(soup)
     if not candidates:
+        soup = BeautifulSoup(response.text, "html.parser")
+        candidates = _extract_ssd_options(soup)
+
+    if not candidates:
+        soup = BeautifulSoup(response.text, "html.parser")
         # TODO: 原價屋報價頁的 HTML 結構可能隨時間調整。若 evaluate.php 改版，
         # 優先改這個 adapter，不要動 main.py 或資料庫寫入層。
         text = soup.get_text("\n", strip=True)
@@ -63,6 +68,52 @@ def fetch_ssd_products() -> list[dict[str, Any]]:
             )
 
     return products
+
+
+def _extract_ssd_options_from_html(html_text: str) -> list[dict[str, Any]]:
+    section = re.search(
+        r"<TD\s+class=t>\s*固態硬碟\s*M\.2｜SSD\s*<TD[^>]*>\s*<SELECT\b[^>]*>(?P<select>.*?)</SELECT>",
+        html_text,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if not section:
+        return []
+
+    select_html = section.group("select")
+    candidates: list[dict[str, Any]] = []
+    current_group: str | None = None
+
+    token_pattern = re.compile(
+        r"<OPTGROUP\b[^>]*LABEL=['\"](?P<label>[^'\"]+)['\"][^>]*>|<OPTION\b(?P<attrs>[^>]*)>(?P<body>.*?)</OPTION>",
+        re.IGNORECASE | re.DOTALL,
+    )
+
+    for match in token_pattern.finditer(select_html):
+        label = match.group("label")
+        if label is not None:
+            current_group = html.unescape(label).strip()
+            continue
+
+        attrs = match.group("attrs") or ""
+        body = match.group("body") or ""
+        if "disabled" in attrs.lower() or re.search(r"\bvalue=['\"]?0\b", attrs, re.IGNORECASE):
+            continue
+
+        text = BeautifulSoup(html.unescape(body), "html.parser").get_text(" ", strip=True)
+        if not text or _extract_price(text) is None:
+            continue
+
+        value_match = re.search(r"\bvalue=['\"]?([^'\"\s>]+)", attrs, re.IGNORECASE)
+        candidates.append(
+            {
+                "text": text,
+                "group": current_group,
+                "value": value_match.group(1) if value_match else None,
+                "category_title": "固態硬碟 M.2｜SSD",
+            }
+        )
+
+    return candidates
 
 
 def _extract_ssd_options(soup: BeautifulSoup) -> list[dict[str, Any]]:

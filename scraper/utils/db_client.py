@@ -93,6 +93,31 @@ def save_scraped_item(conn: psycopg.Connection, item: dict[str, Any]) -> str:
     return str(retailer_product_id)
 
 
+def reset_retailer_data(conn: psycopg.Connection, retailer: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            delete from price_snapshots ps
+            using retailer_products rp
+            where ps.retailer_product_id = rp.id
+              and rp.retailer = %s
+            """,
+            (retailer,),
+        )
+        cur.execute("delete from retailer_products where retailer = %s", (retailer,))
+        cur.execute(
+            """
+            delete from products p
+            where not exists (
+              select 1
+              from retailer_products rp
+              where rp.product_id = p.id
+            )
+            """
+        )
+    conn.commit()
+
+
 def _get_or_create_product(conn: psycopg.Connection, normalized: NormalizedProduct) -> str:
     with conn.cursor() as cur:
         row = cur.execute(

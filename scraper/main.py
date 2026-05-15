@@ -28,8 +28,10 @@ def run_site(retailer: str, fetcher: Callable[[], list[dict[str, Any]]]) -> None
         errors: list[str] = []
 
         try:
+            print(f"[{retailer}] fetching SSD products...", flush=True)
             items = fetcher()
             items_found = len(items)
+            print(f"[{retailer}] found {items_found} candidate items", flush=True)
             for item in items:
                 try:
                     if item.get("price") is None:
@@ -37,13 +39,16 @@ def run_site(retailer: str, fetcher: Callable[[], list[dict[str, Any]]]) -> None
                         continue
                     save_scraped_item(conn, item)
                     items_saved += 1
-                    time.sleep(0.2)
+                    if items_saved % 25 == 0:
+                        print(f"[{retailer}] saved {items_saved}/{items_found}", flush=True)
+                    time.sleep(0.03)
                 except Exception as exc:
                     errors.append(f"{item.get('retailer_product_name', 'unknown')[:80]}: {exc}")
 
             status = "success" if not errors else "partial"
             message = "OK" if not errors else " ; ".join(errors[:20])
             finish_scrape_log(conn, log_id, status, message, items_found, items_saved)
+            print(f"[{retailer}] finished with status={status}, saved={items_saved}", flush=True)
         except Exception as exc:
             finish_scrape_log(conn, log_id, "failed", str(exc), items_found, items_saved)
             raise

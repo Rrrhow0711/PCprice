@@ -22,7 +22,7 @@ def get_connection() -> Iterator[psycopg.Connection]:
     if not database_url:
         raise RuntimeError("Missing DATABASE_URL.")
 
-    with psycopg.connect(database_url, row_factory=dict_row) as conn:
+    with psycopg.connect(database_url, row_factory=dict_row, connect_timeout=20) as conn:
         yield conn
 
 
@@ -126,7 +126,6 @@ def _get_or_create_product(conn: psycopg.Connection, normalized: NormalizedProdu
                     product_id,
                 ),
             )
-            conn.commit()
             return str(product_id)
 
         row = cur.execute(
@@ -145,7 +144,6 @@ def _get_or_create_product(conn: psycopg.Connection, normalized: NormalizedProdu
                 normalized.standard_name,
             ),
         ).fetchone()
-    conn.commit()
     return str(row["id"])
 
 
@@ -189,7 +187,6 @@ def _get_or_create_retailer_product(conn: psycopg.Connection, item: dict[str, An
                 """,
                 (product_id, name, url, retailer_product_id),
             )
-            conn.commit()
             return str(retailer_product_id)
 
         row = cur.execute(
@@ -200,5 +197,4 @@ def _get_or_create_retailer_product(conn: psycopg.Connection, item: dict[str, An
             """,
             (product_id, retailer, name, url),
         ).fetchone()
-    conn.commit()
     return str(row["id"])

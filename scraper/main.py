@@ -21,7 +21,9 @@ SITE_MODULES = {
 
 
 def run_site(retailer: str, fetcher: Callable[[], list[dict[str, Any]]]) -> None:
+    print(f"[{retailer}] opening database connection...", flush=True)
     with get_connection() as conn:
+        print(f"[{retailer}] database connected", flush=True)
         log_id = create_scrape_log(conn, retailer=retailer, category="ssd")
         items_found = 0
         items_saved = 0

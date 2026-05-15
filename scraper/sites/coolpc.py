@@ -26,13 +26,16 @@ def fetch_ssd_products() -> list[dict[str, Any]]:
     response = _get(COOLPC_PRICE_URL)
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # TODO: 原價屋報價頁的 HTML 結構可能隨時間調整。若 evaluate.php 改版，
-    # 優先改這個 adapter，不要動 main.py 或 Supabase 寫入層。
-    text = soup.get_text("\n", strip=True)
-    candidates = _extract_ssd_lines(text)
+    candidates = _extract_ssd_options(soup)
+    if not candidates:
+        # TODO: 原價屋報價頁的 HTML 結構可能隨時間調整。若 evaluate.php 改版，
+        # 優先改這個 adapter，不要動 main.py 或 Supabase 寫入層。
+        text = soup.get_text("\n", strip=True)
+        candidates = [{"text": line, "group": None, "value": None} for line in _extract_ssd_lines(text)]
 
     products: list[dict[str, Any]] = []
-    for line in candidates:
+    for candidate in candidates:
+        line = candidate["text"]
         try:
             price = _extract_price(line)
             if price is None:
@@ -44,7 +47,7 @@ def fetch_ssd_products() -> list[dict[str, Any]]:
                     "price": price,
                     "stock_status": _extract_stock_status(line),
                     "url": COOLPC_PRICE_URL,
-                    "raw_payload": {"line": line},
+                    "raw_payload": candidate,
                 }
             )
         except Exception as exc:
@@ -60,6 +63,38 @@ def fetch_ssd_products() -> list[dict[str, Any]]:
             )
 
     return products
+
+
+def _extract_ssd_options(soup: BeautifulSoup) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+
+    for title_cell in soup.select("td.t"):
+        title = title_cell.get_text(" ", strip=True)
+        if not any(keyword in title.lower() for keyword in ["ssd", "固態"]):
+            continue
+
+        row = title_cell.find_parent("tr")
+        select = row.select_one("select") if row else None
+        if not select:
+            continue
+
+        for option in select.select("option"):
+            if option.has_attr("disabled") or option.get("value") == "0":
+                continue
+            text = option.get_text(" ", strip=True)
+            if not text or _extract_price(text) is None:
+                continue
+            group = option.find_parent("optgroup")
+            candidates.append(
+                {
+                    "text": text,
+                    "group": group.get("label") if group else None,
+                    "value": option.get("value"),
+                    "category_title": title,
+                }
+            )
+
+    return candidates
 
 
 def _extract_ssd_lines(text: str) -> list[str]:
